@@ -1,0 +1,2 @@
+src/kernel/arch/x86/boot/compressed/vmlinux.bin filter=lfs diff=lfs merge=lfs -text
+src/kernel/vmlinux.unstripped filter=lfs diff=lfs merge=lfs -text
