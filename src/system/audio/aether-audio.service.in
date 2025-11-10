@@ -1,0 +1,12 @@
+[Unit]
+Description=Aether OS Audio Service
+After=sound.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/aether-audio-service
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

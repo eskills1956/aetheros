@@ -1,0 +1,14 @@
+[Unit]
+Description=Aether OS Display Service
+After=graphical.target
+Requires=aether-compositor.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/aether-display-service
+Restart=on-failure
+RestartSec=5
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+
+[Install]
+WantedBy=graphical.target

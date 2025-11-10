@@ -155,46 +155,47 @@ build_native_libs() {
     # Build libaether.so - Native bindings for Flutter
     log_info "Building libaether.so..."
 
-    # Create a stub library for now (TODO: implement actual native bindings)
-    cat > /tmp/aether_stub.c << 'EOF'
-// Stub implementation of libaether.so for Flutter FFI bindings
-#include <stdint.h>
+    local libaether_src="$AETHEROS_SRC/frameworks/flutter/libaether"
 
-// Battery status (0-100)
-int32_t aether_get_battery() {
-    return 85;  // Stub: return 85%
-}
+    if [ ! -d "$libaether_src" ]; then
+        log_error "libaether source directory not found: $libaether_src"
+        return 1
+    fi
 
-// Signal strength (0-4)
-int32_t aether_get_signal() {
-    return 3;  // Stub: return 3 bars
-}
+    # Check for CMakeLists.txt
+    if [ ! -f "$libaether_src/CMakeLists.txt" ]; then
+        log_error "No CMakeLists.txt found in libaether directory"
+        return 1
+    fi
 
-// Brightness control (0-100)
-void aether_set_brightness(int32_t level) {
-    // Stub: do nothing for now
-}
+    local build_dir="$AETHEROS_OUT/target/frameworks/libaether/build"
+    mkdir -p "$build_dir"
 
-// Volume control (0-100)
-void aether_set_volume(int32_t level) {
-    // Stub: do nothing for now
-}
+    cd "$build_dir"
 
-// WiFi status (0=off, 1=on)
-int32_t aether_get_wifi_status() {
-    return 1;  // Stub: WiFi on
-}
+    # Configure with CMake
+    log_info "Configuring libaether with CMake..."
+    cmake "$libaether_src" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="$AETHEROS_OUT/target/frameworks/libaether" \
+        -DCMAKE_C_COMPILER="${CROSS_COMPILE}gcc" \
+        -DCMAKE_CXX_COMPILER="${CROSS_COMPILE}g++" \
+        >> "$BUILD_LOG" 2>&1
 
-// Bluetooth status (0=off, 1=on)
-int32_t aether_get_bluetooth_status() {
-    return 0;  // Stub: Bluetooth off
-}
-EOF
+    # Build
+    log_info "Building libaether..."
+    make -j"$PARALLEL_JOBS" >> "$BUILD_LOG" 2>&1
 
-    ${CROSS_COMPILE}gcc -shared -fPIC -o "$lib_dir/libaether.so" /tmp/aether_stub.c >> "$BUILD_LOG" 2>&1
-    rm /tmp/aether_stub.c
+    # Install to staging
+    log_info "Installing libaether..."
+    make install >> "$BUILD_LOG" 2>&1
 
-    log_success "libaether.so built successfully (stub implementation)"
+    # Copy to lib directory for packaging
+    cp "$AETHEROS_OUT/target/frameworks/libaether/lib/libaether.so"* "$lib_dir/" 2>/dev/null || true
+
+    cd "$AETHEROS_TOP"
+
+    log_success "libaether.so built successfully"
 
     return 0
 }
