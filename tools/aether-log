@@ -1,0 +1,249 @@
+#!/bin/bash
+# Aether OS Log Viewer - View system logs from device
+
+set -e
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# Helper functions
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Show usage
+show_usage() {
+    cat << EOF
+Aether OS Log Viewer
+
+Usage: aether-log [options] [filter]
+
+Options:
+  -f, --follow          Follow log output (like tail -f)
+  -c, --clear           Clear device logs
+  -s, --service <name>  Show logs for specific service
+  -l, --level <level>   Filter by log level (debug|info|warn|error)
+  -n, --lines <num>     Number of lines to show (default: 50)
+  --dmesg               Show kernel logs (dmesg)
+  --logcat              Show Android-style logcat
+  -h, --help            Show this help message
+
+Services:
+  display               Display service logs
+  audio                 Audio service logs
+  power                 Power management logs
+  network               Network service logs
+  compositor            Compositor logs
+  all                   All system logs (default)
+
+Examples:
+  aether-log --follow              # Follow all system logs
+  aether-log --service display     # Show display service logs
+  aether-log --level error         # Show only errors
+  aether-log --dmesg --follow      # Follow kernel logs
+  aether-log -n 100                # Show last 100 lines
+
+EOF
+}
+
+# Check for adb
+check_adb() {
+    if ! command -v adb &> /dev/null; then
+        log_error "adb not found"
+        echo ""
+        echo "Please install adb:"
+        echo "  Ubuntu/Debian: sudo apt-get install adb"
+        echo "  Arch:          sudo pacman -S android-tools"
+        echo "  macOS:         brew install android-platform-tools"
+        exit 1
+    fi
+}
+
+# Check device connection
+check_device() {
+    if ! adb devices | grep -q "device$"; then
+        log_error "No device connected"
+        echo ""
+        echo "Please connect device via USB and enable USB debugging"
+        exit 1
+    fi
+}
+
+# View system logs
+view_logs() {
+    local service="$1"
+    local level="$2"
+    local lines="${3:-50}"
+    local follow="$4"
+
+    local log_path=""
+
+    case "$service" in
+        display)
+            log_path="/var/log/aether-display.log"
+            ;;
+        audio)
+            log_path="/var/log/aether-audio.log"
+            ;;
+        power)
+            log_path="/var/log/aether-power.log"
+            ;;
+        network)
+            log_path="/var/log/aether-network.log"
+            ;;
+        compositor)
+            log_path="/var/log/compositor.log"
+            ;;
+        all|*)
+            log_path="/var/log/syslog"
+            ;;
+    esac
+
+    local cmd="tail -n $lines"
+    [ "$follow" = "1" ] && cmd="tail -f"
+
+    log_info "Viewing $service logs..."
+    echo ""
+
+    # Colorize output
+    adb shell "$cmd $log_path 2>/dev/null || echo 'Log file not found: $log_path'" | \
+        sed "s/ERROR/${RED}ERROR${NC}/g" | \
+        sed "s/WARN/${YELLOW}WARN${NC}/g" | \
+        sed "s/INFO/${BLUE}INFO${NC}/g" | \
+        sed "s/SUCCESS/${GREEN}SUCCESS${NC}/g"
+}
+
+# View kernel logs
+view_dmesg() {
+    local follow="$1"
+
+    log_info "Viewing kernel logs..."
+    echo ""
+
+    if [ "$follow" = "1" ]; then
+        adb shell "dmesg -w" | \
+            sed "s/\[.*\]/${CYAN}&${NC}/" | \
+            sed "s/error/${RED}error${NC}/gi" | \
+            sed "s/warning/${YELLOW}warning${NC}/gi"
+    else
+        adb shell "dmesg | tail -n 50" | \
+            sed "s/\[.*\]/${CYAN}&${NC}/" | \
+            sed "s/error/${RED}error${NC}/gi" | \
+            sed "s/warning/${YELLOW}warning${NC}/gi"
+    fi
+}
+
+# View logcat
+view_logcat() {
+    local follow="$1"
+
+    log_info "Viewing logcat..."
+    echo ""
+
+    if [ "$follow" = "1" ]; then
+        adb logcat
+    else
+        adb logcat -d | tail -n 50
+    fi
+}
+
+# Clear logs
+clear_logs() {
+    log_info "Clearing device logs..."
+
+    adb shell "logcat -c" 2>/dev/null || true
+    adb shell "dmesg -c" 2>/dev/null || true
+    adb shell "rm -f /var/log/*.log" 2>/dev/null || true
+
+    echo ""
+    log_info "Logs cleared"
+}
+
+# Banner
+echo "======================================"
+echo "  Aether OS Log Viewer"
+echo "======================================"
+echo ""
+
+# Parse arguments
+SERVICE="all"
+LEVEL=""
+LINES="50"
+FOLLOW="0"
+DMESG="0"
+LOGCAT="0"
+CLEAR="0"
+
+if [ $# -eq 0 ]; then
+    # Default: show last 50 lines of all logs
+    check_adb
+    check_device
+    view_logs "all" "" 50 "0"
+    exit 0
+fi
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -f|--follow)
+            FOLLOW="1"
+            shift
+            ;;
+        -c|--clear)
+            CLEAR="1"
+            shift
+            ;;
+        -s|--service)
+            SERVICE="$2"
+            shift 2
+            ;;
+        -l|--level)
+            LEVEL="$2"
+            shift 2
+            ;;
+        -n|--lines)
+            LINES="$2"
+            shift 2
+            ;;
+        --dmesg)
+            DMESG="1"
+            shift
+            ;;
+        --logcat)
+            LOGCAT="1"
+            shift
+            ;;
+        -h|--help)
+            show_usage
+            exit 0
+            ;;
+        *)
+            log_error "Unknown option: $1"
+            show_usage
+            exit 1
+            ;;
+    esac
+done
+
+# Check dependencies
+check_adb
+check_device
+
+# Execute
+if [ $CLEAR -eq 1 ]; then
+    clear_logs
+elif [ $DMESG -eq 1 ]; then
+    view_dmesg "$FOLLOW"
+elif [ $LOGCAT -eq 1 ]; then
+    view_logcat "$FOLLOW"
+else
+    view_logs "$SERVICE" "$LEVEL" "$LINES" "$FOLLOW"
+fi

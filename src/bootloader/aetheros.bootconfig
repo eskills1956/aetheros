@@ -1,0 +1,29 @@
+# Aether OS Boot Configuration
+# This file defines boot parameters and initialization sequence
+
+# Boot timeout (seconds)
+timeout=5
+
+# Default boot entry
+default=aetheros
+
+# Kernel parameters
+kernel_cmdline="console=ttyS0,115200 console=tty0 rootwait ro init=/sbin/init"
+
+# Boot entries
+[aetheros]
+title=Aether OS
+kernel=/boot/Image
+initrd=/boot/initramfs.img
+append=root=/dev/mmcblk0p2 rootfstype=ext4
+
+[aetheros-recovery]
+title=Aether OS (Recovery Mode)
+kernel=/boot/Image
+initrd=/boot/initramfs.img
+append=root=/dev/mmcblk0p2 rootfstype=ext4 single
+
+[aetheros-fastboot]
+title=Fastboot Mode
+kernel=/boot/Image
+append=bootmode=fastboot
