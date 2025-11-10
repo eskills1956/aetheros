@@ -1,0 +1,259 @@
+#!/bin/bash
+# Aether OS Service Health Monitor
+# Monitors system services and performs automatic recovery
+
+set -e
+
+# Configuration
+CHECK_INTERVAL=30
+LOG_FILE="/var/log/aether-health-monitor.log"
+STATE_DIR="/run/aetheros/health"
+MAX_RESTARTS=3
+RESTART_WINDOW=300  # 5 minutes
+
+# Services to monitor
+SERVICES=(
+    "aether-power"
+    "aether-network"
+    "aether-audio"
+    "aether-display"
+    "aether-compositor"
+)
+
+# Critical services (must be running)
+CRITICAL_SERVICES=(
+    "aether-power"
+    "aether-display"
+)
+
+# Logging
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
+}
+
+log_error() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $1" >> "$LOG_FILE"
+    logger -t aether-health -p daemon.error "$1"
+}
+
+log_warning() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] $1" >> "$LOG_FILE"
+    logger -t aether-health -p daemon.warning "$1"
+}
+
+log_info() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $1" >> "$LOG_FILE"
+    logger -t aether-health -p daemon.info "$1"
+}
+
+# Initialize
+init() {
+    mkdir -p "$STATE_DIR"
+    mkdir -p "$(dirname "$LOG_FILE")"
+
+    log_info "Aether OS Health Monitor starting..."
+    log_info "Check interval: ${CHECK_INTERVAL}s"
+    log_info "PID: $$"
+}
+
+# Check if service is running
+check_service() {
+    local service="$1"
+    systemctl is-active --quiet "$service.service"
+}
+
+# Get restart count
+get_restart_count() {
+    local service="$1"
+    local restart_file="$STATE_DIR/$service.restarts"
+
+    if [ -f "$restart_file" ]; then
+        # Clean old restarts outside window
+        local current_time=$(date +%s)
+        local temp_file=$(mktemp)
+
+        while IFS= read -r timestamp; do
+            if [ $((current_time - timestamp)) -lt $RESTART_WINDOW ]; then
+                echo "$timestamp" >> "$temp_file"
+            fi
+        done < "$restart_file"
+
+        mv "$temp_file" "$restart_file"
+
+        wc -l < "$restart_file"
+    else
+        echo "0"
+    fi
+}
+
+# Record restart
+record_restart() {
+    local service="$1"
+    local restart_file="$STATE_DIR/$service.restarts"
+
+    echo "$(date +%s)" >> "$restart_file"
+}
+
+# Restart service
+restart_service() {
+    local service="$1"
+
+    local restart_count=$(get_restart_count "$service")
+
+    if [ "$restart_count" -ge $MAX_RESTARTS ]; then
+        log_error "$service has been restarted $restart_count times in ${RESTART_WINDOW}s"
+        log_error "$service marked as failed, manual intervention required"
+
+        # Mark as failed
+        touch "$STATE_DIR/$service.failed"
+
+        # Notify user (would integrate with notification system)
+        logger -t aether-health -p daemon.crit "$service has failed repeatedly"
+
+        return 1
+    fi
+
+    log_warning "Restarting $service (attempt $((restart_count + 1))/$MAX_RESTARTS)..."
+
+    if systemctl restart "$service.service"; then
+        record_restart "$service"
+        log_info "$service restarted successfully"
+        return 0
+    else
+        log_error "Failed to restart $service"
+        return 1
+    fi
+}
+
+# Check service health
+check_health() {
+    local service="$1"
+    local is_critical=0
+
+    # Check if critical
+    for critical in "${CRITICAL_SERVICES[@]}"; do
+        if [ "$service" = "$critical" ]; then
+            is_critical=1
+            break
+        fi
+    done
+
+    # Check if service is running
+    if ! check_service "$service"; then
+        if [ $is_critical -eq 1 ]; then
+            log_error "CRITICAL: $service is not running!"
+        else
+            log_warning "$service is not running"
+        fi
+
+        # Check if already failed
+        if [ -f "$STATE_DIR/$service.failed" ]; then
+            log_error "$service is in failed state, skipping restart"
+            return 1
+        fi
+
+        # Attempt restart
+        restart_service "$service"
+        return $?
+    fi
+
+    # Service is running, clear failed state
+    rm -f "$STATE_DIR/$service.failed"
+
+    return 0
+}
+
+# Check system resources
+check_resources() {
+    # Check memory
+    local mem_available=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
+    local mem_total=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+    local mem_percent=$((100 * mem_available / mem_total))
+
+    if [ $mem_percent -lt 10 ]; then
+        log_warning "Low memory: ${mem_percent}% available"
+    fi
+
+    # Check disk space
+    local disk_usage=$(df / | awk 'NR==2 {print $5}' | tr -d '%')
+
+    if [ "$disk_usage" -gt 90 ]; then
+        log_warning "Low disk space: ${disk_usage}% used"
+    fi
+}
+
+# Generate health report
+generate_report() {
+    local report_file="$STATE_DIR/health_report.txt"
+
+    {
+        echo "======================================"
+        echo "  Aether OS Health Report"
+        echo "  $(date)"
+        echo "======================================"
+        echo ""
+
+        echo "Services:"
+        for service in "${SERVICES[@]}"; do
+            local status="RUNNING"
+            if ! check_service "$service"; then
+                status="STOPPED"
+            fi
+
+            if [ -f "$STATE_DIR/$service.failed" ]; then
+                status="FAILED"
+            fi
+
+            local restart_count=$(get_restart_count "$service")
+
+            echo "  $service: $status (restarts: $restart_count)"
+        done
+
+        echo ""
+        echo "System Resources:"
+        echo "  Memory: $(free -h | awk '/^Mem:/ {print $3 "/" $2}')"
+        echo "  Disk: $(df -h / | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}')"
+        echo "  Load: $(uptime | awk -F'load average:' '{print $2}')"
+
+        echo ""
+        echo "Uptime: $(uptime -p)"
+
+    } > "$report_file"
+}
+
+# Main monitoring loop
+monitor_loop() {
+    log_info "Starting monitoring loop..."
+
+    while true; do
+        # Check all services
+        for service in "${SERVICES[@]}"; do
+            check_health "$service" || true
+        done
+
+        # Check system resources
+        check_resources
+
+        # Generate report
+        generate_report
+
+        # Sleep until next check
+        sleep "$CHECK_INTERVAL"
+    done
+}
+
+# Signal handlers
+cleanup() {
+    log_info "Health monitor shutting down..."
+    exit 0
+}
+
+trap cleanup SIGTERM SIGINT
+
+# Main
+main() {
+    init
+    monitor_loop
+}
+
+main "$@"

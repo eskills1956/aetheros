@@ -1,0 +1,38 @@
+[Unit]
+Description=Aether OS Compositor
+Documentation=man:aether-compositor(8)
+After=aether-display.service
+Before=graphical.target
+Requires=aether-display.service
+ConditionPathExists=/usr/bin/aether-compositor
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/aether-compositor
+Restart=always
+RestartSec=3
+TimeoutStartSec=30
+TimeoutStopSec=10
+
+# Environment
+Environment="WAYLAND_DISPLAY=wayland-0"
+Environment="XDG_RUNTIME_DIR=/run/user/1000"
+Environment="XDG_SESSION_TYPE=wayland"
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log /run /dev/dri
+
+# Resource limits
+MemoryMax=1G
+CPUQuota=80%
+
+# Watchdog
+WatchdogSec=30
+NotifyAccess=main
+
+[Install]
+WantedBy=graphical.target

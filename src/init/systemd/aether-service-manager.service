@@ -1,0 +1,28 @@
+[Unit]
+Description=Aether OS Service Manager
+Documentation=man:aether-service-manager(8)
+After=basic.target sysinit.target
+Before=multi-user.target
+DefaultDependencies=no
+
+[Service]
+Type=forking
+ExecStart=/usr/bin/aether-service-manager start
+ExecStop=/usr/bin/aether-service-manager stop
+ExecReload=/usr/bin/aether-service-manager reload
+RemainAfterExit=yes
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/log /run/aetheros
+
+# Resource limits
+MemoryMax=256M
+CPUQuota=20%
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,32 @@
+[Unit]
+Description=Aether OS Power Management Service
+Documentation=man:aether-power-service(8)
+After=basic.target sysinit.target
+Before=multi-user.target
+ConditionPathExists=/usr/bin/aether-power-service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/aether-power-service
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=10
+TimeoutStopSec=5
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log /sys/class/power_supply /sys/class/backlight /sys/devices/system/cpu
+
+# Resource limits
+MemoryMax=128M
+CPUQuota=20%
+
+# Watchdog
+WatchdogSec=30
+
+[Install]
+WantedBy=multi-user.target
+Alias=power.service

@@ -1,0 +1,38 @@
+[Unit]
+Description=Aether OS Audio Service
+Documentation=man:aether-audio-service(8)
+After=basic.target sound.target
+Before=graphical.target
+Wants=pulseaudio.service pipewire.service
+ConditionPathExists=/usr/bin/aether-audio-service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/aether-audio-service
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=15
+TimeoutStopSec=10
+
+# Priority
+Nice=-10
+IOSchedulingClass=realtime
+IOSchedulingPriority=4
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log /dev/snd
+
+# Resource limits
+MemoryMax=256M
+CPUQuota=30%
+
+# Watchdog
+WatchdogSec=20
+
+[Install]
+WantedBy=multi-user.target sound.target
+Alias=audio.service

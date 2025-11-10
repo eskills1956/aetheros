@@ -1,0 +1,14 @@
+# Aether OS - graphical.target
+# This target is reached when the graphical environment is ready
+
+[Unit]
+Description=Aether OS Graphical Interface
+Documentation=man:systemd.special(7)
+Requires=multi-user.target
+Wants=aether-display.service aether-compositor.service
+After=multi-user.target aether-display.service aether-compositor.service
+Conflicts=rescue.target
+AllowIsolate=yes
+
+[Install]
+Alias=default.target

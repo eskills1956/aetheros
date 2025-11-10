@@ -1,0 +1,245 @@
+#!/bin/bash
+# Aether OS System Shutdown Script
+# Handles graceful system shutdown and reboot
+
+set -e
+
+# Configuration
+LOG_FILE="/var/log/aether-shutdown.log"
+STATE_DIR="/run/aetheros"
+SHUTDOWN_TIMEOUT=30
+
+# Colors
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+# Logging
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+}
+
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $1" | tee -a "$LOG_FILE"
+}
+
+log_success() {
+    echo -e "${GREEN}[OK]${NC} $1" | tee -a "$LOG_FILE"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1" | tee -a "$LOG_FILE"
+}
+
+# Shutdown type
+SHUTDOWN_TYPE="${1:-poweroff}"
+
+# Print banner
+print_banner() {
+    clear
+    cat << EOF
+====================================
+  Aether OS System Shutdown
+  $(date)
+====================================
+
+EOF
+}
+
+# Stop user services
+stop_user_services() {
+    log_info "Stopping user services..."
+
+    # Stop compositor and apps
+    if pgrep -x flutter > /dev/null; then
+        log_info "Stopping Flutter applications..."
+        killall -TERM flutter 2>/dev/null || true
+        sleep 2
+        killall -KILL flutter 2>/dev/null || true
+    fi
+
+    if pgrep -x aether-compositor > /dev/null; then
+        log_info "Stopping compositor..."
+        killall -TERM aether-compositor 2>/dev/null || true
+        sleep 2
+    fi
+
+    log_success "User services stopped"
+}
+
+# Stop system services
+stop_system_services() {
+    log_info "Stopping Aether OS services..."
+
+    # Use service manager if available
+    if [ -x /usr/bin/aether-service-manager ]; then
+        /usr/bin/aether-service-manager stop
+    else
+        # Manual service stop
+        local services=(
+            "aether-compositor"
+            "aether-display"
+            "aether-audio"
+            "aether-network"
+            "aether-power"
+        )
+
+        for service in "${services[@]}"; do
+            if systemctl is-active --quiet "$service.service"; then
+                log_info "Stopping $service..."
+                systemctl stop "$service.service" 2>/dev/null || true
+            fi
+        done
+    fi
+
+    log_success "System services stopped"
+}
+
+# Terminate remaining processes
+terminate_processes() {
+    log_info "Terminating remaining processes..."
+
+    # Send TERM signal to all processes
+    log_info "Sending SIGTERM..."
+    killall5 -15 2>/dev/null || true
+    sleep 3
+
+    # Send KILL signal to stubborn processes
+    log_info "Sending SIGKILL to remaining processes..."
+    killall5 -9 2>/dev/null || true
+    sleep 1
+
+    log_success "Processes terminated"
+}
+
+# Sync filesystems
+sync_filesystems() {
+    log_info "Syncing filesystems..."
+
+    sync
+    sync
+    sync
+
+    log_success "Filesystems synced"
+}
+
+# Unmount filesystems
+unmount_filesystems() {
+    log_info "Unmounting filesystems..."
+
+    # Unmount /data
+    if mountpoint -q /data; then
+        log_info "Unmounting /data..."
+        umount -f /data 2>/dev/null || umount -l /data 2>/dev/null || true
+    fi
+
+    # Unmount /cache
+    if mountpoint -q /cache; then
+        log_info "Unmounting /cache..."
+        umount -f /cache 2>/dev/null || umount -l /cache 2>/dev/null || true
+    fi
+
+    # Remount root as read-only
+    log_info "Remounting root as read-only..."
+    mount -o remount,ro / 2>/dev/null || true
+
+    log_success "Filesystems unmounted"
+}
+
+# Save state
+save_state() {
+    log_info "Saving system state..."
+
+    # Record shutdown time
+    echo "$(date +%s)" > "$STATE_DIR/last_shutdown" 2>/dev/null || true
+
+    # Record shutdown type
+    echo "$SHUTDOWN_TYPE" > "$STATE_DIR/last_shutdown_type" 2>/dev/null || true
+
+    # Calculate uptime
+    if [ -f "$STATE_DIR/boot_time" ]; then
+        local boot_time=$(cat "$STATE_DIR/boot_time")
+        local current_time=$(date +%s)
+        local uptime=$((current_time - boot_time))
+        log "Uptime: ${uptime}s"
+    fi
+
+    log_success "State saved"
+}
+
+# Power off
+do_poweroff() {
+    log_info "Powering off system..."
+    sync
+    poweroff -f
+}
+
+# Reboot
+do_reboot() {
+    log_info "Rebooting system..."
+    sync
+    reboot -f
+}
+
+# Halt
+do_halt() {
+    log_info "Halting system..."
+    sync
+    halt -f
+}
+
+# Main shutdown sequence
+main() {
+    print_banner
+
+    log "======================================"
+    log "  System Shutdown: $SHUTDOWN_TYPE"
+    log "======================================"
+    log ""
+
+    # Check if we're root
+    if [ $EUID -ne 0 ]; then
+        log_error "This script must be run as root"
+        exit 1
+    fi
+
+    # Record start time
+    local start_time=$(date +%s)
+
+    # Execute shutdown sequence
+    save_state
+    stop_user_services
+    stop_system_services
+    terminate_processes
+    sync_filesystems
+    unmount_filesystems
+
+    # Calculate shutdown time
+    local end_time=$(date +%s)
+    local duration=$((end_time - start_time))
+
+    log ""
+    log_success "Shutdown sequence complete (${duration}s)"
+    log ""
+
+    # Perform final action
+    case "$SHUTDOWN_TYPE" in
+        poweroff)
+            do_poweroff
+            ;;
+        reboot)
+            do_reboot
+            ;;
+        halt)
+            do_halt
+            ;;
+        *)
+            log_error "Unknown shutdown type: $SHUTDOWN_TYPE"
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

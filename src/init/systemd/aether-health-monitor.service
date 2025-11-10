@@ -1,0 +1,25 @@
+[Unit]
+Description=Aether OS Health Monitor
+Documentation=man:aether-health-monitor(8)
+After=aetheros-system.target
+Wants=aetheros-system.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/aether-health-monitor
+Restart=always
+RestartSec=10
+TimeoutStopSec=10
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/log /run/aetheros
+
+# Resource limits
+MemoryMax=128M
+CPUQuota=10%
+
+[Install]
+WantedBy=multi-user.target

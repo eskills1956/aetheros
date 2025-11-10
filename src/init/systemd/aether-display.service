@@ -1,0 +1,38 @@
+[Unit]
+Description=Aether OS Display Service
+Documentation=man:aether-display-service(8)
+After=basic.target sysinit.target
+Before=graphical.target
+Wants=network.target
+ConditionPathExists=/usr/bin/aether-display-service
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/aether-display-service
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=10
+
+# Environment
+Environment="WAYLAND_DISPLAY=wayland-0"
+Environment="XDG_RUNTIME_DIR=/run/user/1000"
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log /run
+
+# Resource limits
+MemoryMax=512M
+CPUQuota=50%
+
+# Watchdog
+WatchdogSec=30
+NotifyAccess=main
+
+[Install]
+WantedBy=graphical.target
+Alias=display.service

@@ -1,0 +1,14 @@
+# Aether OS - system.target
+# Core system services target
+
+[Unit]
+Description=Aether OS System Services
+Documentation=man:systemd.special(7)
+Requires=basic.target
+Wants=aether-power.service aether-network.service aether-audio.service
+After=basic.target
+Before=multi-user.target
+Conflicts=rescue.target shutdown.target
+
+[Install]
+WantedBy=multi-user.target
