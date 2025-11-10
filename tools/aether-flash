@@ -1,0 +1,323 @@
+#!/bin/bash
+# Aether OS Flash Tool - Enhanced version with safety checks
+
+set -e
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+# Determine script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AETHEROS_TOP="$(cd "$SCRIPT_DIR/.." && pwd)"
+IMAGES_DIR="$AETHEROS_TOP/out/images"
+
+# Helper functions
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+log_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+log_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+# Show usage
+show_usage() {
+    cat << EOF
+Aether OS Flash Tool
+
+Usage: aether-flash [options] [partitions...]
+
+Options:
+  -a, --all        Flash all partitions (boot, system, data)
+  -b, --boot       Flash boot partition only
+  -s, --system     Flash system partition only
+  -d, --data       Flash data partition (wipes user data!)
+  -r, --recovery   Flash recovery partition
+  -f, --force      Skip confirmation prompts
+  -l, --list       List connected devices
+  --wipe           Wipe all partitions (factory reset)
+  -h, --help       Show this help message
+
+Examples:
+  aether-flash --all              # Flash all partitions
+  aether-flash --boot --system    # Flash boot and system only
+  aether-flash --list             # List connected devices
+  aether-flash --wipe             # Factory reset device
+
+EOF
+}
+
+# Check for fastboot
+check_fastboot() {
+    if ! command -v fastboot &> /dev/null; then
+        log_error "fastboot not found"
+        echo ""
+        echo "Please install fastboot:"
+        echo "  Ubuntu/Debian: sudo apt-get install fastboot"
+        echo "  Arch:          sudo pacman -S android-tools"
+        echo "  macOS:         brew install android-platform-tools"
+        exit 1
+    fi
+}
+
+# List connected devices
+list_devices() {
+    log_info "Checking for connected devices..."
+    echo ""
+
+    local devices=$(fastboot devices 2>/dev/null)
+
+    if [ -z "$devices" ]; then
+        log_warning "No devices found in fastboot mode"
+        echo ""
+        echo "To enter fastboot mode:"
+        echo "  1. Power off the device"
+        echo "  2. Hold Volume Down + Power buttons"
+        echo "  3. Connect device to computer via USB"
+        exit 1
+    fi
+
+    echo "Connected devices:"
+    echo "$devices"
+    echo ""
+}
+
+# Verify images exist
+verify_images() {
+    local missing=0
+
+    if [ ! -d "$IMAGES_DIR" ]; then
+        log_error "Images directory not found: $IMAGES_DIR"
+        echo ""
+        echo "Please build the system first:"
+        echo "  make all"
+        exit 1
+    fi
+
+    for partition in "$@"; do
+        local image="$IMAGES_DIR/${partition}.img"
+        if [ ! -f "$image" ]; then
+            log_error "Image not found: ${partition}.img"
+            missing=1
+        fi
+    done
+
+    if [ $missing -eq 1 ]; then
+        echo ""
+        log_info "Available images:"
+        ls -lh "$IMAGES_DIR"/*.img 2>/dev/null || echo "  (none)"
+        exit 1
+    fi
+}
+
+# Flash partition
+flash_partition() {
+    local partition="$1"
+    local image="$IMAGES_DIR/${partition}.img"
+
+    log_info "Flashing $partition partition..."
+
+    if fastboot flash "$partition" "$image"; then
+        log_success "$partition flashed successfully"
+    else
+        log_error "Failed to flash $partition"
+        return 1
+    fi
+}
+
+# Wipe partition
+wipe_partition() {
+    local partition="$1"
+
+    log_warning "Wiping $partition partition..."
+
+    if fastboot erase "$partition"; then
+        log_success "$partition wiped"
+    else
+        log_error "Failed to wipe $partition"
+        return 1
+    fi
+}
+
+# Main flash function
+do_flash() {
+    local partitions=("$@")
+    local failed=0
+
+    echo ""
+    log_info "Beginning flash process..."
+    echo ""
+
+    for partition in "${partitions[@]}"; do
+        flash_partition "$partition" || failed=1
+        echo ""
+    done
+
+    if [ $failed -eq 0 ]; then
+        log_success "All partitions flashed successfully!"
+        echo ""
+
+        read -p "Reboot device now? (Y/n): " reboot
+        if [ "$reboot" != "n" ] && [ "$reboot" != "N" ]; then
+            log_info "Rebooting device..."
+            fastboot reboot
+        fi
+    else
+        log_error "Some partitions failed to flash"
+        exit 1
+    fi
+}
+
+# Wipe device (factory reset)
+do_wipe() {
+    log_warning "WARNING: This will erase ALL data on the device!"
+    echo ""
+    read -p "Type 'yes' to confirm: " confirm
+
+    if [ "$confirm" != "yes" ]; then
+        log_info "Cancelled"
+        exit 0
+    fi
+
+    echo ""
+    log_info "Performing factory reset..."
+    echo ""
+
+    wipe_partition "boot"
+    wipe_partition "system"
+    wipe_partition "data"
+    wipe_partition "cache"
+
+    echo ""
+    log_success "Factory reset complete"
+}
+
+# Banner
+echo "======================================"
+echo "  Aether OS Flash Tool"
+echo "======================================"
+echo ""
+
+# Check dependencies
+check_fastboot
+
+# Parse arguments
+FLASH_BOOT=0
+FLASH_SYSTEM=0
+FLASH_DATA=0
+FLASH_RECOVERY=0
+FLASH_ALL=0
+DO_WIPE=0
+FORCE=0
+
+if [ $# -eq 0 ]; then
+    show_usage
+    exit 0
+fi
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -a|--all)
+            FLASH_ALL=1
+            shift
+            ;;
+        -b|--boot)
+            FLASH_BOOT=1
+            shift
+            ;;
+        -s|--system)
+            FLASH_SYSTEM=1
+            shift
+            ;;
+        -d|--data)
+            FLASH_DATA=1
+            shift
+            ;;
+        -r|--recovery)
+            FLASH_RECOVERY=1
+            shift
+            ;;
+        -f|--force)
+            FORCE=1
+            shift
+            ;;
+        -l|--list)
+            list_devices
+            exit 0
+            ;;
+        --wipe)
+            DO_WIPE=1
+            shift
+            ;;
+        -h|--help)
+            show_usage
+            exit 0
+            ;;
+        *)
+            log_error "Unknown option: $1"
+            show_usage
+            exit 1
+            ;;
+    esac
+done
+
+# Check for devices
+list_devices
+
+# Build partition list
+PARTITIONS=()
+
+if [ $FLASH_ALL -eq 1 ]; then
+    PARTITIONS=("boot" "system")
+else
+    [ $FLASH_BOOT -eq 1 ] && PARTITIONS+=("boot")
+    [ $FLASH_SYSTEM -eq 1 ] && PARTITIONS+=("system")
+    [ $FLASH_DATA -eq 1 ] && PARTITIONS+=("data")
+    [ $FLASH_RECOVERY -eq 1 ] && PARTITIONS+=("recovery")
+fi
+
+# Execute
+if [ $DO_WIPE -eq 1 ]; then
+    do_wipe
+elif [ ${#PARTITIONS[@]} -gt 0 ]; then
+    verify_images "${PARTITIONS[@]}"
+
+    # Show confirmation
+    if [ $FORCE -eq 0 ]; then
+        echo "This will flash the following partitions:"
+        for partition in "${PARTITIONS[@]}"; do
+            echo "  - $partition"
+        done
+        echo ""
+
+        if [[ " ${PARTITIONS[@]} " =~ " data " ]]; then
+            log_warning "WARNING: Flashing data partition will erase user data!"
+        fi
+
+        echo ""
+        read -p "Continue? (y/N): " confirm
+
+        if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
+            log_info "Cancelled"
+            exit 0
+        fi
+    fi
+
+    do_flash "${PARTITIONS[@]}"
+else
+    log_error "No partitions specified"
+    show_usage
+    exit 1
+fi
