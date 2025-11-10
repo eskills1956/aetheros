@@ -155,46 +155,36 @@ build_native_libs() {
     # Build libaether.so - Native bindings for Flutter
     log_info "Building libaether.so..."
 
-    # Create a stub library for now (TODO: implement actual native bindings)
-    cat > /tmp/aether_stub.c << 'EOF'
-// Stub implementation of libaether.so for Flutter FFI bindings
-#include <stdint.h>
+    local libaether_dir="$AETHEROS_SYSTEM/libaether"
 
-// Battery status (0-100)
-int32_t aether_get_battery() {
-    return 85;  // Stub: return 85%
-}
+    if [ -f "$libaether_dir/CMakeLists.txt" ]; then
+        # Build using CMake
+        local build_dir="$AETHEROS_OUT/target/system/libaether/build"
+        mkdir -p "$build_dir"
+        cd "$build_dir"
 
-// Signal strength (0-4)
-int32_t aether_get_signal() {
-    return 3;  // Stub: return 3 bars
-}
+        # Set compiler flags only if cross-compiler exists
+        local cmake_flags="-DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$AETHEROS_OUT/target"
+        if command -v "${CROSS_COMPILE}gcc" &> /dev/null; then
+            cmake_flags="$cmake_flags -DCMAKE_C_COMPILER=${CROSS_COMPILE}gcc -DCMAKE_CXX_COMPILER=${CROSS_COMPILE}g++"
+        fi
 
-// Brightness control (0-100)
-void aether_set_brightness(int32_t level) {
-    // Stub: do nothing for now
-}
+        cmake "$libaether_dir" $cmake_flags >> "$BUILD_LOG" 2>&1
 
-// Volume control (0-100)
-void aether_set_volume(int32_t level) {
-    // Stub: do nothing for now
-}
+        if make -j"$PARALLEL_JOBS" >> "$BUILD_LOG" 2>&1; then
+            # Copy the library to lib directory
+            cp libaether.so "$lib_dir/" 2>/dev/null || true
 
-// WiFi status (0=off, 1=on)
-int32_t aether_get_wifi_status() {
-    return 1;  // Stub: WiFi on
-}
-
-// Bluetooth status (0=off, 1=on)
-int32_t aether_get_bluetooth_status() {
-    return 0;  // Stub: Bluetooth off
-}
-EOF
-
-    ${CROSS_COMPILE}gcc -shared -fPIC -o "$lib_dir/libaether.so" /tmp/aether_stub.c >> "$BUILD_LOG" 2>&1
-    rm /tmp/aether_stub.c
-
-    log_success "libaether.so built successfully (stub implementation)"
+            cd "$AETHEROS_TOP"
+            log_success "libaether.so built successfully"
+        else
+            cd "$AETHEROS_TOP"
+            log_error "libaether.so build failed"
+            return 1
+        fi
+    else
+        log_warning "libaether source not found at $libaether_dir, skipping"
+    fi
 
     return 0
 }
