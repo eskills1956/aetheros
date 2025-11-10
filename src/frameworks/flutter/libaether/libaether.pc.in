@@ -1,0 +1,10 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: libaether
+Description: Aether OS Native Library for Flutter FFI Integration
+Version: 1.0.0
+Libs: -L${libdir} -laether
+Cflags: -I${includedir}
