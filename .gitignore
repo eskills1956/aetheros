@@ -39,7 +39,8 @@ src/kernel/arch/*/boot/bzImage
 .packages
 .pub-cache/
 .pub/
-build/
+# Flutter build output (in app directories only, not root build/ scripts)
+src/apps/**/build/
 
 # Credentials and keys
 *.key
@@ -129,8 +130,9 @@ vmlinux-gdb.py
 .DS_Store
 
 # Build directories
-/build/
 /out/
+# Note: /build/ contains build scripts and should be tracked
+# Flutter/Dart build output is already ignored above by "build/"
 
 # Patch files (optional - you might want to track some)
 *.patch

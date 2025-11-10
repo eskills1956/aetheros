@@ -1,0 +1,44 @@
+#!/bin/bash
+# Aether OS Application Generator
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SDK_ROOT="$(dirname "$SCRIPT_DIR")"
+
+echo "Aether OS Application Generator v1.0"
+echo ""
+
+if [ $# -lt 2 ]; then
+    echo "Usage: aether-create <type> <app-name>"
+    echo ""
+    echo "Types:"
+    echo "  flutter  - Create a Flutter application"
+    echo "  native   - Create a native C/C++ application"
+    echo ""
+    exit 1
+fi
+
+TYPE=$1
+APP_NAME=$2
+
+case $TYPE in
+    flutter)
+        echo "Creating Flutter application: $APP_NAME"
+        flutter create "$APP_NAME"
+        echo ""
+        echo "Application created!"
+        echo "To build: cd $APP_NAME && aether-build"
+        ;;
+    native)
+        echo "Creating native application: $APP_NAME"
+        mkdir -p "$APP_NAME"
+        cp -r "$SDK_ROOT/templates/native"/* "$APP_NAME/"
+        sed -i "s/{{APP_NAME}}/$APP_NAME/g" "$APP_NAME"/* 2>/dev/null || true
+        echo ""
+        echo "Application created!"
+        echo "To build: cd $APP_NAME && aether-build"
+        ;;
+    *)
+        echo "Error: Unknown type '$TYPE'"
+        exit 1
+        ;;
+esac

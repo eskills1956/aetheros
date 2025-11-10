@@ -1,0 +1,35 @@
+#!/bin/bash
+# Aether OS Application Build Tool
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SDK_ROOT="$(dirname "$SCRIPT_DIR")"
+
+echo "Aether OS Build Tool v1.0"
+echo ""
+
+APP_DIR="${1:-.}"
+
+if [ ! -f "$APP_DIR/pubspec.yaml" ] && [ ! -f "$APP_DIR/CMakeLists.txt" ]; then
+    echo "Error: No valid project found in $APP_DIR"
+    echo "Supported project types: Flutter (pubspec.yaml) or CMake (CMakeLists.txt)"
+    exit 1
+fi
+
+# Build Flutter app
+if [ -f "$APP_DIR/pubspec.yaml" ]; then
+    echo "Building Flutter application..."
+    cd "$APP_DIR"
+    flutter pub get
+    flutter build linux --release
+    echo "Build complete!"
+fi
+
+# Build CMake app
+if [ -f "$APP_DIR/CMakeLists.txt" ]; then
+    echo "Building CMake application..."
+    mkdir -p "$APP_DIR/build"
+    cd "$APP_DIR/build"
+    cmake .. -DCMAKE_BUILD_TYPE=Release
+    make -j$(nproc)
+    echo "Build complete!"
+fi
